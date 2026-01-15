@@ -1,0 +1,25 @@
+{
+  "compilerOptions": {
+    /* Basic Settings */
+    "target": "ES2022",
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "baseUrl": ".",
+    
+    /* Path Aliases */
+    "paths": {
+      "@/*": ["src/*"]
+    },
+
+    /* The Fix for your error */
+    "allowImportingTsExtensions": true,
+    "noEmit": true,
+
+    /* Best Practices for Express in 2026 */
+    "esModuleInterop": true,
+    "forceConsistentCasingInFileNames": true,
+    "strict": true,
+    "skipLibCheck": true
+  },
+  "include": ["src/**/*"]
+}
