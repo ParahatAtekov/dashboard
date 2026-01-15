@@ -11,8 +11,11 @@ const handlers: Record<string, (job: any) => Promise<any>> = {
 };
 
 export async function runWorkerLoop(workerId: string, orgId: string) {
+  console.log(`Worker ${workerId} starting for org ${orgId}`);
+  
   while (true) {
-    const jobs = await claimJobsInline(orgId, workerId, 5); // claim any type, ordered by run_at
+    const jobs = await claimJobsInline(orgId, workerId, 5);
+    
     if (jobs.length === 0) {
       await new Promise(r => setTimeout(r, 250));
       continue;
@@ -20,6 +23,7 @@ export async function runWorkerLoop(workerId: string, orgId: string) {
 
     for (const job of jobs) {
       const fn = handlers[job.type];
+      
       if (!fn) {
         await failJobInline(job.id, `no_handler_for_${job.type}`);
         continue;
@@ -28,8 +32,9 @@ export async function runWorkerLoop(workerId: string, orgId: string) {
       try {
         await fn(job);
         await completeJobInline(job.id);
-      } catch (e: any) {
-        await failJobInline(job.id, String(e?.message ?? e));
+      } catch (e: unknown) {
+        const errorMessage = e instanceof Error ? e.message : String(e);
+        await failJobInline(job.id, errorMessage);
       }
     }
   }

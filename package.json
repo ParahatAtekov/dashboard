@@ -1,12 +1,23 @@
 {
   "name": "dashboard-backend",
   "version": "1.0.0",
-  "description": "",
-  "main": "index.js",
+  "description": "Internal SaaS dashboard backend for HyperLiquid-based DeFi platform",
+  "main": "src/index.ts",
   "scripts": {
+    "dev": "ts-node -r tsconfig-paths/register src/index.ts",
+    "dev:worker": "ts-node -r tsconfig-paths/register src/workers/worker.ts",
+    "build": "tsc",
+    "start": "node dist/index.js",
+    "start:worker": "node dist/workers/worker.js",
+    "typecheck": "tsc --noEmit",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
-  "keywords": [],
+  "keywords": [
+    "hyperliquid",
+    "defi",
+    "dashboard",
+    "analytics"
+  ],
   "author": "",
   "license": "ISC",
   "type": "commonjs",
@@ -19,7 +30,9 @@
   "devDependencies": {
     "@types/express": "^5.0.6",
     "@types/node": "^25.0.8",
+    "@types/pg": "^8.16.0",
     "ts-node": "^10.9.2",
+    "tsconfig-paths": "^4.2.0",
     "typescript": "^5.9.3"
   }
 }

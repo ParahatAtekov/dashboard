@@ -2,51 +2,55 @@
 import { pool } from '@/db/pool';
 import { enqueueJob } from '@/workers/queue/enqueue';
 
-export async function rollupWalletDay(job: any) {
-  const { org_id, wallet_id, days } = job.payload as {
-    org_id: string; wallet_id: number; days: string[];
-  };
+export interface RollupWalletDayPayload {
+  org_id: string;
+  wallet_id: number;
+  days: string[];
+}
 
-  // recompute each day deterministically
+export async function rollupWalletDay(job: { payload: RollupWalletDayPayload }) {
+  const { org_id, wallet_id, days } = job.payload;
+
+  // Recompute each day deterministically from raw fills
   for (const day of days) {
     await pool.query(
       `
-      with agg as (
-        select
+      WITH agg AS (
+        SELECT
           org_id,
           wallet_id,
-          date(ts) as day,
-          sum(case when is_spot then notional_usd else 0 end) as spot_volume_usd,
-          sum(case when is_perp then notional_usd else 0 end) as perp_volume_usd,
-          count(*) as trades_count,
-          max(ts) as last_trade_ts
-        from public.hl_fills_raw
-        where org_id = $1
-          and wallet_id = $2
-          and ts >= $3::date
-          and ts <  ($3::date + interval '1 day')
-        group by org_id, wallet_id, date(ts)
+          DATE(ts) AS day,
+          SUM(CASE WHEN is_spot THEN px * sz ELSE 0 END) AS spot_volume_usd,
+          SUM(CASE WHEN is_perp THEN px * sz ELSE 0 END) AS perp_volume_usd,
+          COUNT(*) AS trades_count,
+          MAX(ts) AS last_trade_ts
+        FROM public.hl_fills_raw
+        WHERE org_id = $1
+          AND wallet_id = $2
+          AND ts >= $3::date
+          AND ts < ($3::date + INTERVAL '1 day')
+        GROUP BY org_id, wallet_id, DATE(ts)
       )
-      insert into public.wallet_day_metrics (
+      INSERT INTO public.wallet_day_metrics (
         org_id, wallet_id, day,
         spot_volume_usd, perp_volume_usd, trades_count, last_trade_ts, updated_at
       )
-      select
+      SELECT
         org_id, wallet_id, day,
-        spot_volume_usd, perp_volume_usd, trades_count, last_trade_ts, now()
-      from agg
-      on conflict (org_id, wallet_id, day)
-      do update set
-        spot_volume_usd = excluded.spot_volume_usd,
-        perp_volume_usd = excluded.perp_volume_usd,
-        trades_count = excluded.trades_count,
-        last_trade_ts = excluded.last_trade_ts,
-        updated_at = now()
+        spot_volume_usd, perp_volume_usd, trades_count, last_trade_ts, NOW()
+      FROM agg
+      ON CONFLICT (org_id, wallet_id, day)
+      DO UPDATE SET
+        spot_volume_usd = EXCLUDED.spot_volume_usd,
+        perp_volume_usd = EXCLUDED.perp_volume_usd,
+        trades_count = EXCLUDED.trades_count,
+        last_trade_ts = EXCLUDED.last_trade_ts,
+        updated_at = NOW()
       `,
       [org_id, wallet_id, day]
     );
   }
 
-  // chain global rollup for same days
+  // Chain global rollup for same days
   await enqueueJob(org_id, 'rollup_global_day', { org_id, days });
 }

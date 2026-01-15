@@ -4,20 +4,20 @@ import { pool } from '@/db/pool';
 export async function fetchTopWallets(orgId: string, days: number, limit: number) {
   const { rows } = await pool.query(
     `
-    select
-      w.id as wallet_id,
+    SELECT
+      w.id AS wallet_id,
       w.address,
-      sum(m.spot_volume_usd) as spot_volume_usd,
-      sum(m.perp_volume_usd) as perp_volume_usd,
-      sum(m.trades_count) as trades,
-      max(m.last_trade_ts) as last_trade_at
-    from public.wallet_day_metrics m
-    join public.wallets w on w.id = m.wallet_id
-    where m.org_id = $1
-      and m.day >= current_date - ($2 || ' days')::interval
-    group by w.id, w.address
-    order by (sum(m.spot_volume_usd) + sum(m.perp_volume_usd)) desc
-    limit $3
+      SUM(m.spot_volume_usd) AS spot_volume_usd,
+      SUM(m.perp_volume_usd) AS perp_volume_usd,
+      SUM(m.trades_count) AS trades,
+      MAX(m.last_trade_ts) AS last_trade_at
+    FROM public.wallet_day_metrics m
+    JOIN public.wallets w ON w.id = m.wallet_id
+    WHERE m.org_id = $1
+      AND m.day >= CURRENT_DATE - ($2 || ' days')::INTERVAL
+    GROUP BY w.id, w.address
+    ORDER BY (SUM(m.spot_volume_usd) + SUM(m.perp_volume_usd)) DESC
+    LIMIT $3
     `,
     [orgId, days, limit]
   );
