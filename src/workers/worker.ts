@@ -26,7 +26,6 @@ async function runWorkerLoop() {
       const jobs = await claimJobsInline(ORG_ID, WORKER_ID, 5);
       
       if (jobs.length === 0) {
-        // No jobs available, sleep briefly
         await new Promise(r => setTimeout(r, 250));
         continue;
       }
@@ -54,11 +53,9 @@ async function runWorkerLoop() {
     } catch (e: unknown) {
       const errorMessage = e instanceof Error ? e.message : String(e);
       console.error(`Worker loop error: ${errorMessage}`);
-      // Sleep before retrying on unexpected errors
       await new Promise(r => setTimeout(r, 1000));
     }
   }
 }
 
-// Start the worker
 runWorkerLoop().catch(console.error);

@@ -1,15 +1,12 @@
 // src/workers/queue/enqueue.ts
-import { pool } from '@/db/pool';
+
+import { createJob } from '@/repositories/jobs.repo';
 
 export async function enqueueJob(
   orgId: string,
   type: string,
   payload: Record<string, unknown>,
   runAt?: Date
-): Promise<void> {
-  await pool.query(
-    `INSERT INTO public.jobs (org_id, type, payload, run_at)
-     VALUES ($1, $2, $3::jsonb, COALESCE($4, NOW()))`,
-    [orgId, type, JSON.stringify(payload), runAt?.toISOString() ?? null]
-  );
+): Promise<number> {
+  return createJob(orgId, type, payload, runAt);
 }
