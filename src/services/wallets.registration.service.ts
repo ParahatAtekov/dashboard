@@ -13,7 +13,7 @@ import { hlClient } from '@/workers/ingest/hlClient';
 
 export interface RegisterWalletInput {
   address: string;
-  label?: string;
+  label?: string | null;  // undefined = preserve, null = clear, string = set
   triggerBackfill?: boolean;
 }
 
@@ -59,8 +59,12 @@ export async function registerWallet(
   userId: string,
   input: RegisterWalletInput
 ): Promise<RegisterWalletResult> {
-  const { label, triggerBackfill = true } = input;
+  const { triggerBackfill = true } = input;
   const address = normalizeAddress(input.address);
+  
+  // Handle label: if input.label is undefined, pass undefined to preserve
+  // If input.label is null or string, pass that value
+  const label = input.label;
 
   // Validate
   if (!isValidAddress(address)) {
@@ -73,8 +77,8 @@ export async function registerWallet(
   try {
     await client.query('BEGIN');
 
-    // Step 1: Upsert wallet
-    const walletResult = await walletsRepo.upsertWallet(address, label ?? null);
+    // Step 1: Upsert wallet (label handling is done in repo)
+    const walletResult = await walletsRepo.upsertWallet(address, label);
     const { id: walletId, is_new: isNew } = walletResult;
 
     // Step 2: Link to org
@@ -95,10 +99,13 @@ export async function registerWallet(
       });
     }
 
+    // Get the actual label from DB (might have been preserved)
+    const wallet = await walletsRepo.findWalletById(walletId);
+
     return {
       wallet_id: walletId,
       address,
-      label: label ?? null,
+      label: wallet?.label ?? null,
       is_new: isNew,
       backfill_job_id: backfillJobId,
     };
@@ -162,10 +169,10 @@ export async function unregisterWallet(
   try {
     await client.query('BEGIN');
 
-    // Unlink from org
+    // Unlink from org (FK CASCADE will handle cursor deletion)
     await orgWalletsRepo.unlinkWalletFromOrg(orgId, walletId, client);
 
-    // Delete cursor
+    // Delete cursor explicitly (in case FK not set up)
     await cursorRepo.deleteCursor(orgId, walletId, client);
 
     // Cancel pending jobs
@@ -184,6 +191,25 @@ export async function unregisterWallet(
   } finally {
     client.release();
   }
+}
+
+/**
+ * Update a wallet's label
+ */
+export async function updateWalletLabel(
+  orgId: string,
+  walletId: number,
+  label: string | null
+): Promise<{ success: boolean }> {
+  // Check if linked to org
+  const isLinked = await orgWalletsRepo.isWalletLinkedToOrg(orgId, walletId);
+  if (!isLinked) {
+    throw new Error('Wallet not linked to this organization');
+  }
+
+  await walletsRepo.updateWalletLabel(walletId, label);
+
+  return { success: true };
 }
 
 /**

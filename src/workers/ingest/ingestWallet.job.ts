@@ -15,13 +15,20 @@ export interface IngestWalletPayload {
   address: string;
 }
 
-export async function ingestWallet(job: { payload: IngestWalletPayload }) {
+export interface IngestWalletResult {
+  inserted: number;
+  fills_fetched?: number;
+  days_affected?: number;
+  message?: string;
+}
+
+export async function ingestWallet(job: { payload: IngestWalletPayload }): Promise<IngestWalletResult> {
   const { org_id, wallet_id, address } = job.payload;
   const limiter = getRateLimiter();
 
   try {
     // Get cursor position for this wallet
-    const cursorRes = await pool.query(
+    const cursorRes = await pool.query<{ cursor_ts: Date }>(
       `SELECT cursor_ts FROM public.hl_ingest_cursor
        WHERE org_id = $1 AND wallet_id = $2`,
       [org_id, wallet_id]
@@ -31,6 +38,7 @@ export async function ingestWallet(job: { payload: IngestWalletPayload }) {
     const startTime = new Date(cursorTs.getTime() - OVERLAP_MS);
 
     // Acquire rate limit token before API call
+    // Note: getRateLimiter returns async methods in distributed mode
     const waitTime = await limiter.acquire();
     if (waitTime > 0) {
       console.log(`[Ingest ${wallet_id}] Waited ${waitTime}ms for rate limit`);
@@ -46,14 +54,14 @@ export async function ingestWallet(job: { payload: IngestWalletPayload }) {
     } catch (error: unknown) {
       const errorMessage = error instanceof Error ? error.message : String(error);
       if (errorMessage.includes('rate limit') || errorMessage.includes('Too many')) {
-        reportRateLimit();
+        await reportRateLimit();
         throw new Error(`Rate limited: ${errorMessage}`);
       }
       throw error;
     }
 
     // Adjust rate limiter for actual response size
-    adjustForResponseSize(fills.length);
+    await adjustForResponseSize(fills.length);
 
     if (!fills.length) {
       await updateCursorAfterIngestion(org_id, wallet_id, true, cursorTs);
@@ -61,7 +69,8 @@ export async function ingestWallet(job: { payload: IngestWalletPayload }) {
     }
 
     // Prepare values for bulk insert
-    const values: unknown[][] = [];
+    // Column order: org_id, wallet_id, hl_fill_id, ts, coin, side, px, sz, is_spot, is_perp
+    const values: (string | number | boolean | Date)[][] = [];
     const affectedDays = new Set<string>();
 
     for (const f of fills) {
@@ -69,32 +78,44 @@ export async function ingestWallet(job: { payload: IngestWalletPayload }) {
       affectedDays.add(fillDate.toISOString().split('T')[0]);
       
       values.push([
-        org_id,
-        wallet_id,
-        deriveFillId(f),
-        fillDate,
-        f.coin,
-        f.side,
-        f.px,
-        f.sz,
-        isSpot(f),
-        isPerp(f)
+        org_id,                        // uuid
+        wallet_id,                     // bigint
+        deriveFillId(f),               // text
+        fillDate,                      // timestamptz
+        f.coin,                        // text
+        f.side,                        // text
+        parseFloat(f.px),              // numeric
+        parseFloat(f.sz),              // numeric
+        isSpot(f),                     // boolean
+        isPerp(f)                      // boolean
       ]);
     }
 
+    // Transpose for unnest: converts rows to columns
+    const columns = transpose(values);
+
     // Bulk insert with conflict handling (idempotent)
+    // For partitioned tables, ON CONFLICT must specify columns, not constraint name
+    // The unique index includes ts because it's the partition key
     const insertResult = await pool.query(
       `
       INSERT INTO public.hl_fills_raw
         (org_id, wallet_id, hl_fill_id, ts, coin, side, px, sz, is_spot, is_perp)
       SELECT * FROM unnest(
-        $1::uuid[], $2::bigint[], $3::text[], $4::timestamptz[],
-        $5::text[], $6::text[], $7::numeric[], $8::numeric[],
-        $9::boolean[], $10::boolean[]
+        $1::uuid[],
+        $2::bigint[],
+        $3::text[],
+        $4::timestamptz[],
+        $5::text[],
+        $6::text[],
+        $7::numeric[],
+        $8::numeric[],
+        $9::boolean[],
+        $10::boolean[]
       )
-      ON CONFLICT DO NOTHING
+      ON CONFLICT (org_id, wallet_id, hl_fill_id, ts) DO NOTHING
       `,
-      transpose(values)
+      columns
     );
 
     // Get max timestamp for cursor update
@@ -113,10 +134,11 @@ export async function ingestWallet(job: { payload: IngestWalletPayload }) {
       });
     }
 
-    console.log(`[Ingest ${wallet_id}] Inserted ${insertResult.rowCount ?? 0} fills, rollup for ${affectedDays.size} days`);
+    const insertedCount = insertResult.rowCount ?? 0;
+    console.log(`[Ingest ${wallet_id}] Inserted ${insertedCount} fills, rollup for ${affectedDays.size} days`);
 
     return {
-      inserted: insertResult.rowCount ?? 0,
+      inserted: insertedCount,
       fills_fetched: fills.length,
       days_affected: affectedDays.size,
     };

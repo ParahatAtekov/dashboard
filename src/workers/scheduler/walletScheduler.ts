@@ -83,7 +83,8 @@ export async function scheduleWalletIngestion(
   const cfg = { ...DEFAULT_CONFIG, ...config };
   const limiter = getRateLimiter();
 
-  const availableRequests = limiter.availableRequests();
+  // availableRequests can be sync or async depending on mode
+  const availableRequests = await Promise.resolve(limiter.availableRequests());
   if (availableRequests === 0) {
     console.log('[Scheduler] Rate limiter has no capacity, skipping');
     return { scheduled: 0, skipped: 0 };

@@ -3,6 +3,7 @@ import { claimJobsInline, completeJobInline, failJobInline } from './queue/runti
 import { ingestWallet } from './ingest/ingestWallet.job';
 import { rollupWalletDay } from './rollup/walletDay.job';
 import { rollupGlobalDay } from './rollup/globalDay.job';
+import { initRateLimiter } from './ingest/rateLimiter';
 
 const handlers: Record<string, (job: any) => Promise<any>> = {
   ingest_wallet: ingestWallet,
@@ -12,6 +13,7 @@ const handlers: Record<string, (job: any) => Promise<any>> = {
 
 const WORKER_ID = process.env.WORKER_ID || `worker-${process.pid}`;
 const ORG_ID = process.env.ORG_ID || '';
+const USE_DISTRIBUTED_RATE_LIMIT = process.env.USE_DISTRIBUTED_RATE_LIMIT !== 'false';
 
 async function runWorkerLoop() {
   if (!ORG_ID) {
@@ -19,7 +21,13 @@ async function runWorkerLoop() {
     process.exit(1);
   }
 
+  // Initialize rate limiter (distributed by default for multi-worker safety)
+  await initRateLimiter({
+    useDistributed: USE_DISTRIBUTED_RATE_LIMIT,
+  });
+
   console.log(`Worker ${WORKER_ID} starting for org ${ORG_ID}`);
+  console.log(`Rate limiter mode: ${USE_DISTRIBUTED_RATE_LIMIT ? 'distributed' : 'local'}`);
 
   while (true) {
     try {
@@ -57,5 +65,16 @@ async function runWorkerLoop() {
     }
   }
 }
+
+// Graceful shutdown
+process.on('SIGINT', () => {
+  console.log('\nWorker shutting down...');
+  process.exit(0);
+});
+
+process.on('SIGTERM', () => {
+  console.log('\nWorker shutting down...');
+  process.exit(0);
+});
 
 runWorkerLoop().catch(console.error);
