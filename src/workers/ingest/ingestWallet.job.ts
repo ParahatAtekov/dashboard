@@ -35,7 +35,7 @@ export async function ingestWallet(job: { payload: IngestWalletPayload }): Promi
     );
 
     const cursorTs: Date = cursorRes.rows[0]?.cursor_ts ?? new Date(0);
-    const startTime = new Date(cursorTs.getTime() - OVERLAP_MS);
+    const startTime = new Date(Math.max(0, cursorTs.getTime() - OVERLAP_MS));
 
     // Acquire rate limit token before API call
     // Note: getRateLimiter returns async methods in distributed mode

@@ -12,7 +12,9 @@
     "start:worker": "node dist/workers/worker.js",
     "start:scheduler": "node dist/workers/scheduler/schedulerRunner.js",
     "typecheck": "tsc --noEmit",
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "recover-jobs": "ts-node -r tsconfig-paths/register src/scripts/recover-stuck-jobs.ts",
+    "monitor-jobs": "ts-node -r tsconfig-paths/register src/scripts/job-monitor.ts"
   },
   "keywords": [
     "hyperliquid",
@@ -24,6 +26,8 @@
   "license": "ISC",
   "type": "commonjs",
   "dependencies": {
+    "@supabase/supabase-js": "^2.90.1",
+    "dotenv": "^17.2.3",
     "express": "^5.2.1",
     "jose": "^6.1.3",
     "pg": "^8.16.3",

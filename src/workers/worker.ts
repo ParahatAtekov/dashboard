@@ -4,6 +4,7 @@ import { ingestWallet } from './ingest/ingestWallet.job';
 import { rollupWalletDay } from './rollup/walletDay.job';
 import { rollupGlobalDay } from './rollup/globalDay.job';
 import { initRateLimiter } from './ingest/rateLimiter';
+import { recoverStuckJobs } from '@/repositories/jobs.repo';
 
 const handlers: Record<string, (job: any) => Promise<any>> = {
   ingest_wallet: ingestWallet,
@@ -28,6 +29,12 @@ async function runWorkerLoop() {
 
   console.log(`Worker ${WORKER_ID} starting for org ${ORG_ID}`);
   console.log(`Rate limiter mode: ${USE_DISTRIBUTED_RATE_LIMIT ? 'distributed' : 'local'}`);
+
+  // Recover any stuck jobs from previous worker crashes
+  const recoveredCount = await recoverStuckJobs(ORG_ID);
+  if (recoveredCount > 0) {
+    console.log(`Recovered ${recoveredCount} stuck job(s) from previous worker crash`);
+  }
 
   while (true) {
     try {

@@ -1,7 +1,6 @@
 // src/api/middleware/auth.ts
-import { jwtVerify } from 'jose';
+import { jwtVerify, createRemoteJWKSet } from 'jose';
 import { Request, Response, NextFunction } from 'express';
-import { env } from '@/config/env';
 
 declare global {
   namespace Express {
@@ -15,10 +14,13 @@ declare global {
   }
 }
 
+// Create JWKS client for Supabase
+const JWKS = createRemoteJWKSet(new URL('https://jwyddxxaoykxbgeooetp.supabase.co/auth/v1/.well-known/jwks.json'));
+
 export async function auth(req: Request, res: Response, next: NextFunction) {
   try {
     const authHeader = req.headers.authorization;
-    
+
     if (!authHeader || !authHeader.startsWith('Bearer ')) {
       res.status(401).json({ error: 'unauthorized', message: 'Missing or invalid authorization header' });
       return;
@@ -28,7 +30,11 @@ export async function auth(req: Request, res: Response, next: NextFunction) {
 
     const { payload } = await jwtVerify(
       token,
-      new TextEncoder().encode(env.SUPABASE_JWT_SECRET)
+      JWKS,
+      {
+        issuer: 'https://jwyddxxaoykxbgeooetp.supabase.co/auth/v1',
+        audience: 'authenticated'
+      }
     );
 
     req.user = { userId: payload.sub as string };

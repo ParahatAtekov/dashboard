@@ -84,9 +84,13 @@ export async function claimJobs(
       SELECT id
       FROM public.jobs
       WHERE org_id = $1
-        AND status = 'queued'
-        AND run_at <= NOW()
-        AND (lock_expires_at IS NULL OR lock_expires_at < NOW())
+        AND (
+          -- Claim queued jobs that are ready to run
+          (status = 'queued' AND run_at <= NOW())
+          OR
+          -- Reclaim stuck running jobs with expired locks
+          (status = 'running' AND lock_expires_at < NOW())
+        )
       ORDER BY run_at ASC
       FOR UPDATE SKIP LOCKED
       LIMIT $3
@@ -107,7 +111,7 @@ export async function completeJob(jobId: number): Promise<void> {
     `
     UPDATE public.jobs
     SET
-      status = 'completed',
+      status = 'succeeded',
       locked_at = NULL,
       locked_by = NULL,
       lock_expires_at = NULL,
@@ -143,4 +147,29 @@ export async function failJob(jobId: number, error: string): Promise<void> {
     `,
     [jobId, error]
   );
+}
+
+/**
+ * Recover stuck jobs with expired locks
+ * This handles jobs that were running when a worker crashed or was killed
+ */
+export async function recoverStuckJobs(orgId: string): Promise<number> {
+  const result = await pool.query(
+    `
+    UPDATE public.jobs
+    SET
+      status = 'queued',
+      locked_at = NULL,
+      locked_by = NULL,
+      lock_expires_at = NULL,
+      run_at = NOW(),
+      updated_at = NOW()
+    WHERE org_id = $1
+      AND status = 'running'
+      AND lock_expires_at < NOW()
+    `,
+    [orgId]
+  );
+
+  return result.rowCount ?? 0;
 }
